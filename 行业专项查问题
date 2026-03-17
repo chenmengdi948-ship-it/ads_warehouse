@@ -1,0 +1,29 @@
+select 
+case when direct_sales_dept3_name = '美奢潮流服饰行业' then (case when track_industry_name is not null then track_industry_name
+        when track_industry_name is null and direct_sales_dept4_name in ('美妆洗护行业') then '美妆'
+        when track_industry_name is null and direct_sales_dept4_name in ('奢品行业') then '奢品'
+        when track_industry_name is null and direct_sales_dept4_name in ('服饰潮流行业') then '服饰潮流'
+        else '其他' end)
+            when direct_sales_dept3_name = '生活服务行业' then track_group_name
+            else track_industry_name end as track_industry_name_final,
+  --active_level_type_5m,
+  if(direct_sales_dept3_name ='耐用消费行业', direct_sales_dept4_name,direct_sales_dept5_name) as direct_sales_dept_final,
+   count(distinct brand_account_id), count(distinct concat(brand_account_id,active_level_type_5m))
+  --brand_account_id,count(distinct active_level_type_5m)
+from  redapp.app_ads_industry_account_income_df
+ where
+  dtm = '{{ds_nodash}}' and date_key>='2023-09-01' and date_key<='2023-09-18'
+  and direct_sales_dept3_name = '美奢潮流服饰行业'
+  and product='竞价-搜索' and market_target='全部'
+  --and active_level_type_5m='双月投放'
+  --and brand_account_id in ('5be3b8764125cb0001554438','5bab26a7a6037b0001146da0')
+group by 
+case when direct_sales_dept3_name = '美奢潮流服饰行业' then (case when track_industry_name is not null then track_industry_name
+        when track_industry_name is null and direct_sales_dept4_name in ('美妆洗护行业') then '美妆'
+        when track_industry_name is null and direct_sales_dept4_name in ('奢品行业') then '奢品'
+        when track_industry_name is null and direct_sales_dept4_name in ('服饰潮流行业') then '服饰潮流'
+        else '其他' end)
+            when direct_sales_dept3_name = '生活服务行业' then track_group_name
+            else track_industry_name end ,
+  --active_level_type_5m,
+   if(direct_sales_dept3_name ='耐用消费行业', direct_sales_dept4_name,direct_sales_dept5_name)

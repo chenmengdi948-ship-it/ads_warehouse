@@ -1,0 +1,774 @@
+drop table if exists temp.temp_dm_ads_pub_spu_cvr_cost_1d_di_campaign_{{ds_nodash}};
+
+create table
+  temp.temp_dm_ads_pub_spu_cvr_cost_1d_di_campaign_{{ds_nodash}} as
+select campaign_id,spu_id,a.module,a.product,case
+     when a.marketing_target in (3, 8, 14,15) then '闭环电商广告'
+     when a.marketing_target in (13) then '非闭环电商广告'
+     when a.marketing_target in (2, 5, 9) then '线索广告'
+     when a.marketing_target not in (3, 8, 2, 5, 9, 13, 14,15)
+     and a.module in ('效果') then '种草广告'
+     when a.module in ('品牌', '薯条', '品合') then '整体'
+     else null
+   end as marketing_target,min(date_key) as cam_dt,sum(case when date_key='{{ds}}' then cash_income_amt else 0 end) as cam_income_amt
+from redcdm.dws_ads_note_spu_product_income_detail_td_df a
+left join 
+redcdm.dim_ads_creativity_core_df b on a.creativity_id = b.creativity_id and b.dtm=max_dtm('redcdm.dim_ads_creativity_core_df')
+where a.dtm='{{ds_nodash}}' and a.cash_income_amt<>0
+and campaign_id is not null and spu_id is not null
+group by campaign_id,spu_id,a.module,a.product,
+case
+     when a.marketing_target in (3, 8, 14,15) then '闭环电商广告'
+     when a.marketing_target in (13) then '非闭环电商广告'
+     when a.marketing_target in (2, 5, 9) then '线索广告'
+     when a.marketing_target not in (3, 8, 2, 5, 9, 13, 14,15)
+     and a.module in ('效果') then '种草广告'
+     when a.module in ('品牌', '薯条', '品合') then '整体'
+     else null
+   end 
+;
+
+drop table if exists temp.temp_dm_ads_pub_spu_cvr_cost_1d_di_note_{{ds_nodash}};
+
+create table
+  temp.temp_dm_ads_pub_spu_cvr_cost_1d_di_note_{{ds_nodash}} as
+select note_id,spu_id,a.module,a.product,case
+     when a.marketing_target in (3, 8, 14,15) then '闭环电商广告'
+     when a.marketing_target in (13) then '非闭环电商广告'
+     when a.marketing_target in (2, 5, 9) then '线索广告'
+     when a.marketing_target not in (3, 8, 2, 5, 9, 13, 14,15)
+     and a.module in ('效果') then '种草广告'
+     when a.module in ('品牌', '薯条', '品合') then '整体'
+     else null
+   end as marketing_target,min(date_key) as note_dt,sum(case when date_key='{{ds}}' then cash_income_amt else 0 end) as note_income_amt
+from redcdm.dws_ads_note_spu_product_income_detail_td_df a
+where a.dtm='{{ds_nodash}}' and a.cash_income_amt<>0 and  note_id is not null and module in ('效果')
+ and spu_id is not null
+group by note_id,spu_id,a.module,a.product,case
+     when a.marketing_target in (3, 8, 14,15) then '闭环电商广告'
+     when a.marketing_target in (13) then '非闭环电商广告'
+     when a.marketing_target in (2, 5, 9) then '线索广告'
+     when a.marketing_target not in (3, 8, 2, 5, 9, 13, 14,15)
+     and a.module in ('效果') then '种草广告'
+     when a.module in ('品牌', '薯条', '品合') then '整体'
+     else null
+   end ;
+drop table if exists temp.temp_dm_ads_pub_spu_cvr_cost_1d_di_noteall_{{ds_nodash}};
+
+create table
+  temp.temp_dm_ads_pub_spu_cvr_cost_1d_di_noteall_{{ds_nodash}} as
+select spu_id,count(1) as note_num_6m,count(case when dt='{{ds}}' then 1 else null end ) as new_note_num
+from 
+(select discovery_id as note_id,substring(publish_time,1,10) as dt
+from reddw.dw_soc_discovery_delta_7_day
+where dtm='{{ds_nodash}}' 
+and (is_brand = 1 or is_bind = 1 or is_cps_note = 1)
+and substring(publish_time,1,10)>=add_months('{{ds}}',-6)
+and substring(publish_time,1,10)<='{{ds}}'
+)t1 
+join 
+(select spu_id,note_id
+from ads_databank.dim_spu_note_df 
+where dtm=max_dtm('ads_databank.dim_spu_note_df' ) 
+group by 1,2
+)t2 
+on t1.note_id = t2.note_id
+group by spu_id;
+
+drop table
+  if exists temp.temp_dm_ads_pub_spu_cvr_cost_1d_di_eng_{{ds_nodash}};
+
+create table
+  temp.temp_dm_ads_pub_spu_cvr_cost_1d_di_eng_{{ds_nodash}} as
+select
+  f_getdate(dtm) as date_key,
+  dtm,
+  creativity_id,
+  t1.note_id,
+  spu_id,
+  module,
+  product,
+  case
+    when marketing_target in (3, 8, 14, 15) then '闭环电商广告'
+    when marketing_target in (13) then '非闭环电商广告'
+    when marketing_target in (2, 5, 9) then '线索广告'
+    when marketing_target not in (3, 8, 2, 5, 9, 13, 14, 15)
+    and module in ('效果') then '种草广告'
+    when module in ('品牌', '薯条', '品合') then '整体'
+    else null
+  end as marketing_target,
+  sum(unique_imp_cnt) as imp_cnt,
+  sum(unique_click_cnt) as click_cnt,
+  sum(cost_amount) as income_amt,
+  sum(
+    case
+      when marketing_target in (3, 8, 15) then click_rgmv_7d
+      else 0
+    end
+  ) as click_rgmv_7d,
+  sum(
+    case
+      when marketing_target in (3, 8, 15) then coalesce(purchase_order_num, 0) + coalesce(mini_purchase_order_num, 0)
+      else 0
+    end
+  ) as total_purchase_order_num,
+  sum(
+    case
+      when marketing_target in (3, 8, 15) then cost_amount
+      else 0
+    end
+  ) as ecm_income_amt
+from
+  (
+    select
+      dtm,
+      creativity_id,
+      case
+        when ads_material_type = 'post' then ads_material_id
+        else null
+      end as note_id,
+      unique_imp_cnt,
+      unique_click_cnt,
+      cost_amount,
+      marketing_target,
+      click_rgmv_7d,
+      purchase_order_num,
+      mini_purchase_order_num,
+      module,
+      product
+    from
+      redcdm.dm_ads_rtb_creativity_1d_di
+    where
+      dtm >= '20220901'
+      and dtm <= '{{ds_nodash}}'
+  ) t1
+  left join (
+    --互动看算法+人工
+    select
+      note_id,
+      spu_id
+    from
+      ads_databank.dim_spu_note_df
+    where
+      dtm = greatest('{{ds_nodash}}', '20231210') --and bind_type = 2
+    group by
+      1,
+      2
+  ) spu_note_engage on spu_note_engage.note_id = t1.note_id
+group by
+  dtm,
+  creativity_id,
+  t1.note_id,
+  spu_id,
+  module,
+  product,
+  case
+    when marketing_target in (3, 8, 14, 15) then '闭环电商广告'
+    when marketing_target in (13) then '非闭环电商广告'
+    when marketing_target in (2, 5, 9) then '线索广告'
+    when marketing_target not in (3, 8, 2, 5, 9, 13, 14, 15)
+    and module in ('效果') then '种草广告'
+    when module in ('品牌', '薯条', '品合') then '整体'
+    else null
+  end;
+drop table if exists temp.temp_dm_ads_pub_spu_cvr_cost_1d_di_spu_eng_{{ds_nodash}};
+
+create table
+  temp.temp_dm_ads_pub_spu_cvr_cost_1d_di_spu_eng_{{ds_nodash}} as
+select dtm,
+	t1.creativity_id,
+  module,
+  product,
+  marketing_target,
+	note_id,
+	t2.spu_id,
+	imp_cnt,
+	click_cnt,
+	income_amt,
+	click_rgmv_7d,
+	total_purchase_order_num,
+	ecm_income_amt
+from 
+(select *
+	from
+temp.temp_dm_ads_pub_spu_cvr_cost_1d_di_eng_{{ds_nodash}}
+where spu_id is null --未人工或算法绑定spu
+)t1 
+join 
+(select
+  a.element_id,
+  a.main_spu_id as spu_id
+from
+  redods.ods_shequ_feed_ads_tb_material_bind_spu_df a
+where
+  a.dtm =greatest('20231010','{{ds_nodash}}')
+  and a.del = 0
+group by
+  1,
+  2)t2 
+on t1.creativity_id=t2.element_id
+union all 
+select dtm,
+	creativity_id,
+  module,
+  product,
+  marketing_target,
+	note_id,
+	spu_id,
+	imp_cnt,
+	click_cnt,
+	income_amt,
+	click_rgmv_7d,
+	total_purchase_order_num,
+	ecm_income_amt
+from 
+temp.temp_dm_ads_pub_spu_cvr_cost_1d_di_eng_{{ds_nodash}}
+where spu_id is not null --未人工或算法绑定spu
+;
+drop table if exists temp.temp_dm_ads_pub_spu_cvr_cost_1d_di_budget_{{ds_nodash}};
+
+create table
+  temp.temp_dm_ads_pub_spu_cvr_cost_1d_di_budget_{{ds_nodash}} as
+select
+  t2.dtm,
+  t1.spu_id,
+  '闭环电商广告' as marketing_target,
+  '效果' as module,
+  '整体' as product,
+  sum(cost_special_campaign) as cost_special_campaign,
+  sum(min_campaign_budget) as min_campaign_budget
+from
+  (
+    select
+      spu_id,
+      campaign_id
+    from
+      (
+        select
+          campaign_id,
+          ads_material_id as note_id
+        from
+          redcdm.dim_ads_creativity_core_df
+        where
+          dtm = '{{ds_nodash}}'
+          and marketing_target in (3, 8, 14, 15)
+          and ads_material_type = 'post'
+        group by
+          campaign_id,
+          ads_material_id
+      ) t1
+      left join (
+        --互动看算法+人工
+        select
+          note_id,
+          spu_id
+        from
+          ads_databank.dim_spu_note_df
+        where
+          dtm = greatest('{{ds_nodash}}', '20231210') --and bind_type = 2
+        group by
+          1,
+          2
+      ) spu_note_engage on spu_note_engage.note_id = t1.note_id
+    where
+      spu_id is not null
+    group by
+      spu_id,
+      campaign_id
+  ) t1
+  left join (
+    select
+      dtm,
+      campaign_id,
+      cost_special_campaign,
+      min_campaign_budget
+    from
+      redapp.app_ads_overall_budget_1d_di
+    where
+      dtm >= '20230101'
+      and dtm <= '{{ds_nodash}}'
+      and granularity = '计划粒度'
+  ) t2 on t1.campaign_id = t2.campaign_id
+group by
+  t2.dtm,
+  t1.spu_id;
+drop table if exists temp.temp_dm_ads_pub_spu_account_{{ds_nodash}};
+
+create table
+  temp.temp_dm_ads_pub_spu_account_{{ds_nodash}} as
+  select spu.spu_id,
+    brand_account.brand_account_id,
+    brand_account_name,
+    operator_name ,
+    direct_sales_name ,
+    operator_code ,
+    direct_sales_code ,
+    direct_sales_dept1_name,
+    direct_sales_dept2_name,
+    direct_sales_dept3_name,
+    first_industry_name,
+    second_industry_name,
+    planner_name
+  from 
+  (select
+      spu_id,
+      brand_id
+    from
+      ads_databank.dim_spu_df
+    where
+      dtm = greatest('{{ds_nodash}}', '20231105')
+    group by spu_id,
+      brand_id
+  )spu 
+  left join 
+ ( --brand_id和brand_account_id映射关系
+  select
+    brandz_id as brand_id
+    ,brand_user_id as brand_account_id
+  from
+        (
+            select
+              brandz_id
+              ,brand_user_id
+              ,coalesce(cash_cost,0) as cash_cost
+              ,row_number() over(partition by brandz_id order by cash_cost desc) as rk
+            from
+            (
+              select
+                brandz_id
+                ,brand_user_id
+              from redods.ods_ads_crm_crm_account_brandz_info
+              -- where dtm = '{{ds_nodash}}'
+              where dtm = greatest('{{ds_nodash}}', '20231105')
+              and state = 1
+            ) a 
+            left join
+            (
+              select
+                brand_user_id as brand_account_id
+                ,sum(cash_cost) as cash_cost
+              from reddm.dm_ads_crm_advertiser_income_wide_day
+              where dtm = greatest('{{ds_nodash}}', '20231105')
+              and module in ('品牌','效果','薯条')
+              
+              and date_key > f_getdate('{{ds}}',-30) and date_key <= '{{ds}}'  --近30日流水最大
+              group by 1
+            ) b
+            on a.brand_user_id = b.brand_account_id
+            
+          
+        ) a 
+    where rk = 1
+    )brand_account 
+    on brand_account.brand_id = spu.brand_id
+  left join 
+  (select brand_account_id,
+      direct_sales_dept1_name,
+      direct_sales_dept2_name,
+      direct_sales_dept3_name,
+      direct_sales_name,
+      operator_name,
+      operator_code ,
+      direct_sales_code,
+      brand_user_name as brand_account_name,
+      first_industry_name,
+      second_industry_name,
+      planner_name
+  from redapp.app_ads_insight_industry_account_df
+  where dtm= greatest('{{ds_nodash}}', '20231105')
+  )account 
+  on account.brand_account_id=brand_account.brand_account_id
+;
+drop table if exists temp.temp_dm_ads_pub_spu_agent_account_{{ds_nodash}};
+
+create table
+  temp.temp_dm_ads_pub_spu_agent_account_{{ds_nodash}} as
+select spu_id
+    ,a.agent_user_id
+    ,a.agent_user_name
+    ,t5.name as channel_sales_name
+    ,t6.name as channel_operator_name
+  from
+        (
+            select
+              spu_id,
+              agent_user_id,
+              agent_user_name,
+              -- channel_sales_name,
+              -- channel_operator_name
+              coalesce(cash_cost,0) as cash_cost
+              ,row_number() over(partition by spu_id order by cash_cost desc) as rk
+            from
+            (
+              select
+                spu_id,
+                agent_user_id,
+                agent_user_name,
+                -- channel_sales_name,
+                -- channel_operator_name
+                sum(cash_cost) as cash_cost
+              from redcdm.dm_ads_spu_account_detail_1d_di
+              where dtm > f_getdate('{{ds_nodash}}',-30) and dtm <= '{{ds_nodash}}'  --近30日流水最大
+              and module in ('品牌','效果','薯条')
+              and coalesce(agent_user_id ,'')<>''
+              and cash_cost>0
+              group by 1,2,3
+            ) b
+        ) a 
+        left join 
+        ads_data_crm.dw_ads_crm_agent_user_hook_relation_df b
+        on a.agent_user_id=b.agent_user_id and b.dtm=greatest('20231105','{{ds_nodash}}')
+        left join 
+        (select code,
+         name
+        from
+          (select code,
+            concat(red_name, '(', true_name, ')') as name,
+            row_number()over(partition by  red_name order by create_time desc) as rn --兜底历史脏数据56条署名重复
+          from redods.ods_ads_crm_ads_crm_user 
+          where dtm=greatest('20231105','{{ds_nodash}}')
+          )a 
+          where rn=1
+        )t5
+        on t5.code = coalesce(b.primary_channel_code,b.rtb_channel_code)
+        left join 
+        (select code,
+         name
+        from
+          (select code,
+            concat(red_name, '(', true_name, ')') as name,
+            row_number()over(partition by  red_name order by create_time desc) as rn --兜底历史脏数据56条署名重复
+          from redods.ods_ads_crm_ads_crm_user 
+          where dtm=greatest('20231105','{{ds_nodash}}')
+          )a 
+          where rn=1
+        )t6
+        on t6.code = b.channel_op_code
+    where rk = 1;
+insert overwrite table redcdm.dm_ads_pub_spu_product_cvr_cost_td_df  partition( dtm = '{{ds_nodash}}')
+select t.date_key,
+  module,
+  product,
+  marketing_target,
+  t.spu_id,
+  spu.brand_id as brand_id,
+  spu.brand_name as brand_name,
+  spu.spu_name as spu_name,
+  spu.commercial_taxonomy_name1,
+  spu.commercial_code2,
+  spu.commercial_taxonomy_name2,
+  spu.commercial_code3,
+  spu.commercial_taxonomy_name3,
+  spu.commercial_code4,
+  spu.commercial_taxonomy_name4,
+  
+  t.brand_account_id,
+  account.brand_account_name,
+  account.operator_code,
+  account.operator_name,
+  account.direct_sales_code,
+  account.direct_sales_name,
+  account.direct_sales_dept1_name,
+  account.direct_sales_dept2_name,
+  account.direct_sales_dept3_name,
+  imp_num,
+  click_num,
+  like_num,
+  fav_num,
+  read_feed_num,
+  share_num,
+  query_num,
+  note_screenshot_num,
+  ti_user_num,
+  ti.ti_level,
+  imp_note_num,
+  bind_note_num,
+  softad_imp_note_num,
+  pos_imp_note_num,
+  new_note_num,
+  cash_cost,
+  bind_cash_cost,
+  imp_emotional_note_num,
+  brand_ti_user_num,
+  account.first_industry_name,
+  account.second_industry_name,
+  cost_note_num,
+  bind_cost_note_num,
+  bind_splash_creativity_num,
+  bind_splash_cash_cost,
+  agent_user_id,
+  agent_user_name,
+  channel_sales_name,
+  spu.pic_url,
+  rgmv,
+  channel_operator_name,
+  i_user_num,
+  a_user_num,
+  s_user_num,
+  planner_name,
+  cost,
+  bind_cost,
+  is_cspu,
+  campaign_cnt,
+  note_cnt,
+  income_campaign_cnt,
+  income_note_cnt,
+  ads_imp_cnt,
+   ads_click_cnt,
+   ads_income_amt,
+  click_rgmv_7d,
+  total_purchase_order_num,
+  ecm_income_amt,
+  cost_special_campaign,
+  min_campaign_budget,
+   pgc_new_nore_num,
+  pgc_note_num_6m
+  
+from 
+(select coalesce(a1.date_key, t1.date_key) as date_key,
+      coalesce(a1.module, t1.module) as module,
+      coalesce(a1.product, t1.product) as product,
+      coalesce(a1.marketing_target, t1.marketing_target) as marketing_target,
+      coalesce(a1.spu_id, t1.spu_id) as spu_id,
+  brand_id,
+  brand_name,
+  spu_name,
+  commercial_taxonomy_name1,
+  commercial_code2,
+  commercial_taxonomy_name2,
+  commercial_code3,
+  commercial_taxonomy_name3,
+  commercial_code4,
+  commercial_taxonomy_name4,
+  coalesce(a1.brand_account_id,t1.brand_account_id) as brand_account_id,
+  brand_account_name,
+  operator_code,
+  operator_name,
+  direct_sales_code,
+  direct_sales_name,
+  direct_sales_dept1_name,
+  direct_sales_dept2_name,
+  direct_sales_dept3_name,
+  imp_num,
+  click_num,
+  like_num,
+  fav_num,
+  read_feed_num,
+  share_num,
+  query_num,
+  note_screenshot_num,
+  ti_user_num,
+  ti_level,
+  imp_note_num,
+  bind_note_num,
+  softad_imp_note_num,
+  pos_imp_note_num,
+  a1.new_note_num,
+  cash_cost,
+  bind_cash_cost,
+  imp_emotional_note_num,
+  brand_ti_user_num,
+  first_industry_name,
+  second_industry_name,
+  cost_note_num,
+  bind_cost_note_num,
+  bind_splash_creativity_num,
+  bind_splash_cash_cost,
+  coalesce(a1.agent_user_id,t1.agent_user_id) as agent_user_id,
+  coalesce(a1.agent_user_name,t1.agent_user_name) as agent_user_name,
+  coalesce(a1.channel_sales_name,t1.channel_sales_name) as channel_sales_name,
+  pic_url,
+  rgmv,
+  coalesce(a1.channel_operator_name,t1.channel_operator_name) as channel_operator_name,
+  i_user_num,
+  a_user_num,
+  s_user_num,
+  planner_name,
+  cost,
+  bind_cost,
+  coalesce(a1.is_cspu,t1.is_cspu) as is_cspu,
+  campaign_cnt,
+  note_cnt,
+  income_campaign_cnt,
+  income_note_cnt,
+  imp_cnt as ads_imp_cnt,
+  click_cnt as ads_click_cnt,
+  income_amt as ads_income_amt,
+  click_rgmv_7d,
+  total_purchase_order_num,
+  ecm_income_amt,
+  cost_special_campaign,
+  min_campaign_budget,
+  t1.new_note_num as pgc_new_nore_num
+  --t1.note_num_6m as pgc_note_num_6m
+from 
+(select date_key,
+  module,
+  product,
+  marketing_target,
+  spu_id,
+  brand_id,
+  brand_name,
+  spu_name,
+  commercial_taxonomy_name1,
+  commercial_code2,
+  commercial_taxonomy_name2,
+  commercial_code3,
+  commercial_taxonomy_name3,
+  commercial_code4,
+  commercial_taxonomy_name4,
+  brand_account_id,
+  brand_account_name,
+  operator_code,
+  operator_name,
+  direct_sales_code,
+  direct_sales_name,
+  direct_sales_dept1_name,
+  direct_sales_dept2_name,
+  direct_sales_dept3_name,
+  imp_num,
+  click_num,
+  like_num,
+  fav_num,
+  read_feed_num,
+  share_num,
+  query_num,
+  note_screenshot_num,
+  ti_user_num,
+  ti_level,
+  imp_note_num,
+  bind_note_num,
+  softad_imp_note_num,
+  pos_imp_note_num,
+  new_note_num,
+  cash_cost,
+  bind_cash_cost,
+  imp_emotional_note_num,
+  brand_ti_user_num,
+  first_industry_name,
+  second_industry_name,
+  cost_note_num,
+  bind_cost_note_num,
+  bind_splash_creativity_num,
+  bind_splash_cash_cost,
+  agent_user_id,
+  agent_user_name,
+  channel_sales_name,
+  pic_url,
+  rgmv,
+  channel_operator_name,
+  i_user_num,
+  a_user_num,
+  s_user_num,
+  planner_name,
+  cost,
+  bind_cost,
+  is_cspu
+from redcdm.dm_ads_pub_spu_cvr_cost_1d_di
+where dtm>='20220901' and dtm<='{{ds_nodash}}')a1 
+full outer join 
+(select date_key,
+  module,
+  product,
+  marketing_target,
+  spu_id,
+  brand_account_id,
+  agent_user_id,
+  agent_user_name,
+  channel_sales_name,
+  is_cspu,
+  campaign_cnt,
+  note_cnt,
+  income_campaign_cnt,
+  income_note_cnt,
+  imp_cnt,
+  click_cnt,
+  income_amt,
+  click_rgmv_7d,
+  total_purchase_order_num,
+  ecm_income_amt,
+  cost_special_campaign,
+  min_campaign_budget,
+  new_note_num,
+  channel_operator_name
+from
+redcdm.dm_ads_pub_spu_product_td_df
+where dtm='{{ds_nodash}}'
+  )t1 
+on a1.date_key = t1.date_key
+      and a1.spu_id = t1.spu_id
+      and a1.module = t1.module
+      and a1.product = t1.product
+      and a1.marketing_target = t1.marketing_target
+      )t
+      left join 
+      (select brand_account_id,
+      direct_sales_dept1_name,
+      direct_sales_dept2_name,
+      direct_sales_dept3_name,
+      direct_sales_dept4_name,
+      direct_sales_dept5_name,
+      direct_sales_dept6_name,
+      direct_sales_name,
+      operator_name,
+      operator_code ,
+      direct_sales_code,
+      brand_user_name as brand_account_name,
+      first_industry_name,
+      second_industry_name,
+      brand_group_tag_name,
+      operator_name as cpc_operator_name
+from redapp.app_ads_insight_industry_account_df
+where dtm= '{{ds_nodash}}'
+)account on account.brand_account_id=t.brand_account_id
+    left join 
+    (select
+    spu_id,
+    brand_id,
+    brand_name,
+    name as spu_name,
+    commercial_taxonomy_name1,
+    commercial_code2,
+    commercial_taxonomy_name2,
+    commercial_code3,
+    commercial_taxonomy_name3,
+    commercial_code4,
+    commercial_taxonomy_name4,
+    split(pic_url_list,';')[0] as pic_url
+  from
+    ads_databank.dim_spu_df
+  where
+    dtm = greatest('{{ds_nodash}}', '20231205')
+  group by 1,2,3,4,5,6,7,8,9,10,11,12
+  )spu on spu.spu_id = t.spu_id
+  left join 
+  (select spu_id,
+    date_key,
+    ti_level
+  from redcdm.dm_ads_pub_spu_cvr_cost_1d_di 
+  where module = '整体'
+  group by spu_id,
+    date_key,
+    ti_level
+  )ti 
+  on ti.date_key=t.date_key and ti.spu_id = t.spu_id
+  left join 
+  (select spu_id,count(1) as pgc_note_num_6m
+  from 
+  (select discovery_id as note_id,substring(publish_time,1,10) as dt
+  from reddw.dw_soc_discovery_delta_7_day
+  where dtm='{{ds_nodash}}' 
+  and (is_brand = 1 or is_bind = 1 or is_cps_note = 1)
+  and substring(publish_time,1,10)>=add_months('{{ds}}',-6)
+  and substring(publish_time,1,10)<='{{ds}}'
+  )t1 
+  join 
+  (select spu_id,note_id
+  from ads_databank.dim_spu_note_df 
+  where dtm=max_dtm('ads_databank.dim_spu_note_df' ) 
+  group by 1,2
+  )t2 
+  on t1.note_id = t2.note_id
+  group by spu_id
+  )pgc 
+  on pgc.spu_id = t.spu_id

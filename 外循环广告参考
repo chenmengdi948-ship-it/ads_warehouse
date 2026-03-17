@@ -1,0 +1,225 @@
+--step1：开屏+品专+GD 外链建中间表 （修改成新的表）
+      drop table if exists temp.pite_wailiancid_step1;
+      create table temp.pite_wailiancid_step1 as 
+      select
+      brand_account_id
+      ,a.unit_id
+      ,product
+      ,b.wailian_jump_type
+      ,b.second_jump_type
+      ,sum(revenue) as revenue
+      ,sum(imp_num) as imp_num
+      ,sum(click_num) as click_num
+      ,sum(2nd_jump_imp_num) as 2nd_jump_imp_num
+      ,sum(2nd_jump_click_num) as 2nd_jump_click_num
+      from 
+      (select
+      brand_account_id
+      ,unit_id
+      ,product
+      ,sum(ad_cost) as revenue
+      ,sum(imp_num) as imp_num
+      ,sum(click_num) as click_num
+      ,sum(2nd_jump_imp_num) as 2nd_jump_imp_num
+      ,sum(2nd_jump_click_num) as 2nd_jump_click_num
+      --from redst.st_ads_brand_unit_revenue_engagement_day_inc
+      from  reddw.dw_ads_creativity_wide_base_detail_day_inc
+      where dtm between '20230701' and '20230731'
+      group by 1,2,3) a
+
+
+      left join
+      (select
+      a.unit_id
+      ,case when (first_jump_type  = 36 and e.unit_id is not null) or first_jump_type  = 37 then '微信小程序'
+      when first_jump_type  = 36 or (first_jump_type = 8 and (lower(jump_url) like '%tmall%' or lower(jump_url) like '%jd%' or lower(jump_url) like '%taobao%')) then '电商'
+      when first_jump_type = 8 then '官网'  else '非外链'end as wailian_jump_type
+      ,second_jump_type
+      from reddw.dw_ads_creativity_day a 
+      left join 
+          (
+      select
+      b.id as creativity_id,
+      a.id as unit_id
+      from redods.ods_shequ_feed_ads_t_ads_cpd_unit a
+      join redods.ods_shequ_feed_ads_t_ads_creativity b       on a.id = b.unit_id     and b.dtm = greatest('{{ds_nodash}}','20230501')
+      join redods.ods_shequ_feed_ads_t_ads_campaign c         on a.campaign_id = c.id and c.dtm = greatest('{{ds_nodash}}','20230501')
+      left join redods.ods_shequ_feed_ads_t_boot_screen_ext d on b.ext_boot_id = d.id and d.dtm = greatest('{{ds_nodash}}','20230501')
+      left join reddw.dw_user_brand_official_account_day e    on c.advertiser_id = e.user_id and e.dtm = greatest('{{ds_nodash}}','20230501') and (e.apply_result in (2,3) or e.ad_status = 'auditPass')
+      where a.dtm = greatest('{{ds_nodash}}','20230501')
+      and a.module_type = 2
+      and (is_wechat_app_mini_program = 1 or d.landing_page_type = 37)
+      group by 1,2
+      ) e 
+      on a.unit_id = e.unit_id
+      where dtm='{{ds_nodash}}'
+      group by 1,2,3) b on a.unit_id=b.unit_id
+      group by 1,2,3,4,5
+
+--step2：分产品并到一起
+        drop table if exists temp.pite_wailiancid_step2;
+        create table temp.pite_wailiancid_step2 as 
+
+        --开屏一跳外链
+            select
+            brand_account_id
+            ,'外链' as grain
+            ,'开屏 一跳' as type
+            ,wailian_jump_type as sub_type
+            ,sum(revenue) as cost
+            ,sum(revenue) as cash_cost
+            ,sum(imp_num) as imp_num
+            ,sum(click_num) as click_num
+            ,0 as goods_view_pv
+            ,0 as total_order
+            ,0 as rgmv
+            from temp.pite_wailiancid_step1 
+            where (wailian_jump_type  in ('电商','微信小程序','官网'))
+            and product='开屏'
+            group by 1,2,3,4
+
+            union all
+        --开屏二跳外链
+            select
+            brand_account_id
+            ,'外链' as grain
+            ,'开屏 二跳' as type
+            ,second_jump_type as sub_type
+            ,sum(revenue) as cost
+            ,sum(revenue) as cash_cost
+            ,sum(imp_num) as imp_num
+            ,sum(click_num) as click_num
+            ,0 as goods_view_pv
+            ,0 as total_order
+            ,0 as rgmv
+            from temp.pite_wailiancid_step1 
+            where  second_jump_type in (8,12,37)
+            and wailian_jump_type   not in ('电商','微信小程序','官网')
+            and product='开屏'
+            group by 1,2,3,4
+
+            union all 
+        --GD二跳外链
+            select
+            brand_account_id
+            ,'外链' as grain
+            ,'GD 二跳' as type
+            ,second_jump_type as sub_type
+            ,sum(revenue) as cost
+            ,sum(revenue) as cash_cost
+            ,sum(imp_num) as imp_num
+            ,sum(click_num) as click_num
+            ,0 as goods_view_pv
+            ,0 as total_order
+            ,0 as rgmv
+            from temp.pite_wailiancid_step1 
+            where  second_jump_type in (8,12,37)
+            and wailian_jump_type   not in ('电商','微信小程序','官网')
+            and product='信息流GD'
+            group by 1,2,3,4
+
+            union all 
+        --品专二跳外链
+            select
+            brand_account_id
+            ,'外链' as grain
+            ,'品专 二跳' as type
+            ,second_jump_type as sub_type
+            ,sum(revenue) as cost
+            ,sum(revenue) as cash_cost
+            ,sum(imp_num) as imp_num
+            ,sum(click_num) as click_num
+            ,0 as goods_view_pv
+            ,0 as total_order
+            ,0 as rgmv
+            from temp.pite_wailiancid_step1 
+            where  second_jump_type in (8,12,37)
+            and wailian_jump_type   not in ('电商','微信小程序','官网')
+            and product='品牌专区'
+            group by 1,2,3,4
+
+        ------------------------------------------------------
+        ------------------------------------------------------
+
+            union all 
+        --竞价种草 外链建
+
+            select
+            brand_account_id
+            ,'外链' as grain
+            ,'竞价 二跳' as type
+            ,'外链网址' as sub_type
+            ,sum(cost) as cost
+            ,sum(cash_cost) as cash_cost
+            ,sum(2nd_jump_imp_num) as 2nd_jump_imp_num
+            ,sum(2nd_jump_click_num) as 2nd_jump_click_num
+            ,0 as goods_view_pv
+            ,0 as total_order
+            ,0 as rgmv
+            from redst.st_ads_wide_cpc_creativity_day_inc
+            where dtm between '20230701' and '20230731'
+            and is_effective=1
+            and second_jump_type=8
+            and marketing_target not in  (3,8,13,2,5,9)--种草
+            group by 1,2,3,4
+
+        --CID
+            union all 
+            select
+            brand_account_id
+            ,'CID' as grain
+            ,'CID' as type
+            ,'其他' as sub_type
+            ,sum(cost) as cost
+            ,sum(cash_cost) as cash_cost
+            ,sum(new_goods_component_imp_num) as new_goods_component_imp_num
+            ,sum(new_goods_component_click_num) as new_goods_component_click_num
+            ,sum(goods_view_pv) as goods_view_pv
+            ,sum(total_order) as total_order
+            ,sum(rgmv) as rgmv
+            from redst.st_ads_wide_cpc_creativity_day_inc
+            where dtm between '20230701' and '20230731'
+            and is_effective=1
+            -- and second_jump_type=8
+            and marketing_target  in  (13)--CID
+            group by 1,2,3,4
+
+        --闭环电商
+            union all 
+            select
+            brand_account_id
+            ,'CID' as grain
+            ,'CID' as type
+            ,'其他' as sub_type
+            ,sum(cost) as cost
+            ,sum(cash_cost) as cash_cost
+            ,sum(new_goods_component_imp_num) as new_goods_component_imp_num
+            ,sum(new_goods_component_click_num) as new_goods_component_click_num
+            ,sum(goods_view_pv) as goods_view_pv
+            ,sum(total_order) as total_order
+            ,sum(rgmv) as rgmv
+            from redst.st_ads_wide_cpc_creativity_day_inc
+            where dtm between '20230701' and '20230731'
+            and is_effective=1
+            -- and second_jump_type=8
+            and marketing_target  in  (3,8)--商销+直播
+            group by 1,2,3,4
+
+            union all 
+        --小红星 看流水 淘联
+            select
+            brand_account_user_id
+            ,'小红星' as grain
+            ,'小红星' as type
+            ,'流水' as sub_type
+            ,sum(bcoo_content_price) AS cost
+            ,sum(bcoo_content_price) AS cash_cost
+            ,0
+            ,0
+            ,0
+            ,0
+            ,0
+            from redapp.app_ads_taolian_brief_note_cost_df 
+            where dtm = '{{ds_nodash}}'
+            and brief_start_time between '20230701' and '20230731'
+            group by 1,2,3,4
